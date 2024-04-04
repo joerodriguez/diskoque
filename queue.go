@@ -150,6 +150,7 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 		if err != nil {
 			msg.Attempt = msg.Attempt + 1
 
+			// TODO: implement exponential backoff
 			if msg.Attempt <= q.maxAttempts {
 				msg.NextAttemptAfter = time.Now().Add(10 * time.Second)
 
@@ -207,10 +208,9 @@ func (q *Queue) startPushingToUnclaimedChan() func() {
 			select {
 			case <-stop:
 				return
-			default:
+			case <-time.After(1 * time.Second):
 			}
 
-			// read all entries in the unclaimed data directory
 			unclaimedDir, err := os.Open(q.unclaimedDir)
 			if err != nil {
 				fmt.Println(fmt.Errorf("failed to read unclaimedDir: %w", err))

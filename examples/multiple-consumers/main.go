@@ -13,8 +13,8 @@ import (
 	"github.com/joerodriguez/diskoque"
 )
 
-const numMessages = 20000
-const numWorkers = 1000
+const numMessages = 100000
+const numWorkers = 3000
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -38,6 +38,7 @@ func main() {
 		}
 	}()
 
+	wg := sync.WaitGroup{}
 	m := sync.Mutex{}
 	eventsProcessed := make(map[string]struct{})
 	processed := func(data string) {
@@ -54,19 +55,19 @@ func main() {
 		if len(eventsProcessed) == numMessages {
 			fmt.Println("all messages processed exactly once")
 			go func() {
-				time.Sleep(100 * time.Millisecond)
+				cancel()
+				wg.Wait()
 				syscall.Exit(0)
 			}()
 		}
 	}
 
-	wg := sync.WaitGroup{}
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
 		go func() {
 			_ = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
 				randomSleep := rand.Intn(100)
-				time.Sleep(time.Duration(randomSleep) * time.Millisecond)
+				time.Sleep(time.Duration(randomSleep+200) * time.Millisecond)
 				processed(msg.Data)
 				return nil
 			})
@@ -76,9 +77,6 @@ func main() {
 	}
 
 	waitForSigTerm()
-	cancel()
-
-	wg.Wait()
 }
 
 func waitForSigTerm() {
