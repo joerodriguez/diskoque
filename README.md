@@ -41,11 +41,13 @@ import (
 
 func main() {
 	// Initialize a new queue
-	q := diskoque.New("myQueue",
+	q, closeq := diskoque.New(
+		"myQueue",
 		diskoque.WithDataDirectory("/path/to/data/directory"),
 		diskoque.WithMaxAttempts(5),
 		diskoque.WithExponentialBackoff(1*time.Second, 30*time.Second),
 	)
+	defer closeq()
 
 	// Publish a message
 	err := q.Publish(&diskoque.Message{
@@ -56,7 +58,7 @@ func main() {
 	}
 
 	// Receive and process messages
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	err = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
 		log.Printf("Received message: %s", msg.Data)
 		return nil
@@ -65,6 +67,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to receive messages: %v", err)
 	}
+
+	cancel()
 }
 ```
 
@@ -73,24 +77,24 @@ func main() {
 diskoque is designed to be fast. Here are some benchmark results showing the overhead per message with various worker
 counts, on an M1 Ultra:
 ```bash
-joerodriguez@Josephs-MacBook-Pro diskoque % go test ./... -bench=. -benchtime=5s
+joerodriguez@Josephs-MacBook-Pro diskoque % go test ./... -bench=.
 goos: darwin
 goarch: arm64
 pkg: github.com/joerodriguez/diskoque
-BenchmarkQueue/1_workers-10                 1119           4697923 ns/op
-BenchmarkQueue/2_workers-10                 1420           4548058 ns/op
-BenchmarkQueue/4_workers-10                 1230           4151907 ns/op
-BenchmarkQueue/8_workers-10                 2407           2330245 ns/op
-BenchmarkQueue/16_workers-10                4266           1521746 ns/op
-BenchmarkQueue/32_workers-10                2848           1772116 ns/op
-BenchmarkQueue/64_workers-10                5709           1098983 ns/op
-BenchmarkQueue/128_workers-10              10000            793299 ns/op
-BenchmarkQueue/256_workers-10               5078           1413913 ns/op
-BenchmarkQueue/512_workers-10              10000            871647 ns/op
-BenchmarkQueue/1024_workers-10              3649           1392767 ns/op
-BenchmarkQueue/2048_workers-10              5968           1171895 ns/op
-BenchmarkQueue/4096_workers-10              3264           1614191 ns/op
-BenchmarkQueue/8192_workers-10              3028           1683323 ns/op
+BenchmarkQueue/1_workers-10                  199           8537964 ns/op
+BenchmarkQueue/2_workers-10                  252           5022640 ns/op
+BenchmarkQueue/4_workers-10                  336           5590483 ns/op
+BenchmarkQueue/8_workers-10                 1785           1069018 ns/op
+BenchmarkQueue/16_workers-10                3412            528523 ns/op
+BenchmarkQueue/32_workers-10                2578            518314 ns/op
+BenchmarkQueue/64_workers-10                3885            433907 ns/op
+BenchmarkQueue/128_workers-10               2358            452674 ns/op
+BenchmarkQueue/256_workers-10               2264            444903 ns/op
+BenchmarkQueue/512_workers-10               2844            566632 ns/op
+BenchmarkQueue/1024_workers-10              2535            534443 ns/op
+BenchmarkQueue/2048_workers-10              2227            509665 ns/op
+BenchmarkQueue/4096_workers-10              2359            473809 ns/op
+BenchmarkQueue/8192_workers-10              1960            575587 ns/op
 ```
 
 ### Contributing

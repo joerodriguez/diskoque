@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/signal"
 	"sync"
@@ -12,8 +13,8 @@ import (
 	"github.com/joerodriguez/diskoque"
 )
 
-const numMessages = 10000
-const numWorkers = 100
+const numMessages = 20000
+const numWorkers = 1000
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -64,8 +65,8 @@ func main() {
 		wg.Add(1)
 		go func() {
 			_ = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
-				//randomSleep := rand.Intn(101)
-				//time.Sleep(time.Duration(randomSleep) * time.Millisecond)
+				randomSleep := rand.Intn(100)
+				time.Sleep(time.Duration(randomSleep) * time.Millisecond)
 				processed(msg.Data)
 				return nil
 			})

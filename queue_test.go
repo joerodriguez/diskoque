@@ -40,10 +40,11 @@ func BenchmarkQueue(b *testing.B) {
 			}
 			defer os.RemoveAll(dir)
 
-			q := diskoque.New(
+			q, closeQ := diskoque.New(
 				fmt.Sprintf("benchmark-%d-workers", bm.numWorkers),
 				diskoque.WithDataDirectory(dir),
 			)
+			defer closeQ()
 
 			wg := sync.WaitGroup{}
 			wg.Add(b.N)

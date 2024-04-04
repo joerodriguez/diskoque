@@ -201,14 +201,19 @@ func (q *Queue) mustDir(dir string) {
 
 func (q *Queue) startPushingToUnclaimedChan() func() {
 	stop := make(chan struct{})
-	done := make(chan struct{})
 
 	go func() {
 		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+
 			// read all entries in the unclaimed data directory
 			unclaimedDir, err := os.Open(q.unclaimedDir)
 			if err != nil {
-				fmt.Println(fmt.Sprintf("failed to read unclaimedDir: %w", err))
+				fmt.Println(fmt.Errorf("failed to read unclaimedDir: %w", err))
 				continue
 			}
 
@@ -220,21 +225,24 @@ func (q *Queue) startPushingToUnclaimedChan() func() {
 				}
 
 				for _, fileName := range messageFiles {
-					q.unclaimedChan <- fileName
+					select {
+					case <-stop:
+						return
+					case q.unclaimedChan <- fileName:
+					}
 				}
 			}
 
 			err = unclaimedDir.Close()
 			if err != nil {
-				fmt.Println(fmt.Sprintf("failed to close unclaimedDir: %w", err))
+				fmt.Println(fmt.Errorf("failed to close unclaimedDir: %w", err))
 				continue
 			}
 		}
 	}()
 
 	return func() {
-		close(stop)
-		<-done
+		stop <- struct{}{}
 	}
 }
 
