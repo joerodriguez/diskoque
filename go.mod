@@ -1,3 +1,3 @@
 module github.com/joerodriguez/diskoque
 
-go 1.22.0
+go 1.22
