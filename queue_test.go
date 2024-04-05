@@ -170,25 +170,19 @@ func BenchmarkQueue(b *testing.B) {
 			// add b.N messages to the queue
 			go func() {
 				for i := 0; i < b.N; i++ {
-					err = q.Publish(&diskoque.Message{
+					_ = q.Publish(&diskoque.Message{
 						Data: fmt.Sprintf("message-%d", i),
 					})
-					if err != nil {
-						// TODO: handle error
-					}
 				}
 			}()
 
+			// start bm.numWorkers workers to process messages
 			for i := 0; i < bm.numWorkers; i++ {
 				go func() {
-					err := q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
+					_ = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
 						wg.Done()
 						return nil
 					})
-
-					if err != nil {
-						// TODO: handle error
-					}
 				}()
 			}
 
