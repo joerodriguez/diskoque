@@ -35,7 +35,7 @@ import (
 	"context"
 	"log"
 	"time"
-	
+
 	"github.com/joerodriguez/diskoque"
 )
 
@@ -57,19 +57,27 @@ func main() {
 		log.Fatalf("Failed to publish message: %v", err)
 	}
 
-	// Receive and process messages
+	complete := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	err = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
-		log.Printf("Received message: %s", msg.Data)
-		return nil
-	})
 
-	if err != nil {
-		log.Fatalf("Failed to receive messages: %v", err)
-	}
+	// Receive and process messages
+	go func() {
+		err = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
+			log.Printf("Received message: %s\n", msg.Data)
+			close(complete)
+			return nil
+		})
 
+		if err != nil {
+			log.Fatalf("Receive error: %v", err)
+		}
+	}()
+
+	<-complete
+	
 	cancel()
 }
+
 ```
 
 ### Benchmarks

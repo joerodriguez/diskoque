@@ -5,11 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand"
+	"math"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
+
+const filePerm = 0666
+
+type Message struct {
+	Data    string
+	Attempt uint8
+}
 
 type Queue struct {
 	dataDir       string
@@ -72,12 +80,10 @@ func WithExponentialBackoff(minRetryDelay time.Duration, maxRetryDelay time.Dura
 
 func (q *Queue) Publish(msg *Message) error {
 	// Set default metadata
-	id := rand.Uint64()
 	msg.Attempt = 1
-	msg.NextAttemptAfter = time.Now()
 
 	// Generate a unique filename for the message
-	filename := fmt.Sprintf("%s/%d-%d.json", q.unclaimedDir, time.Now().UnixNano(), id)
+	filename := fmt.Sprintf("%s/%d", q.unclaimedDir, time.Now().UnixNano())
 
 	// Marshal the message to JSON for storage
 	data, err := json.Marshal(msg)
@@ -86,7 +92,7 @@ func (q *Queue) Publish(msg *Message) error {
 	}
 
 	// Write the file
-	return os.WriteFile(filename, data, 0666)
+	return os.WriteFile(filename, data, filePerm)
 }
 
 func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Message) error) error {
@@ -122,7 +128,7 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 		}
 
 		// open the file for read/write
-		file, err := os.OpenFile(claimedPath, os.O_RDONLY, 0666)
+		file, err := os.OpenFile(claimedPath, os.O_RDONLY, filePerm)
 		if err != nil {
 			return err
 		}
@@ -149,24 +155,20 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 		err = handler(ctx, msg)
 		if err != nil {
 			msg.Attempt = msg.Attempt + 1
-
-			// TODO: implement exponential backoff
 			if msg.Attempt <= q.maxAttempts {
-				msg.NextAttemptAfter = time.Now().Add(10 * time.Second)
-
 				data, err := json.Marshal(msg)
 				if err != nil {
 					// TODO:
 					return err
 				}
 
-				err = os.WriteFile(unclaimedPath, data, 0666)
+				delay := q.nextAttemptIn(msg)
+				unclaimedPath := fmt.Sprintf("%s/%d", q.unclaimedDir, time.Now().Add(delay).UnixNano())
+				err = os.WriteFile(unclaimedPath, data, filePerm)
 				if err != nil {
 					// TODO:
 					return err
 				}
-
-				return os.Remove(claimedPath)
 			}
 		}
 
@@ -187,10 +189,22 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 			err := process(fileName)
 			release()
 			if err != nil {
-				time.Sleep(time.Second)
+				fmt.Println(err.Error())
 			}
 		}
 	}
+}
+
+func (q *Queue) nextAttemptIn(msg *Message) time.Duration {
+	mult := (math.Pow(2, float64(msg.Attempt-1)) - 1) / 2
+	delay := time.Duration(mult) * q.minRetryDelay
+	if delay < q.minRetryDelay {
+		delay = q.minRetryDelay
+	}
+	if delay > q.maxRetryDelay {
+		delay = q.maxRetryDelay
+	}
+	return delay
 }
 
 func (q *Queue) mustDir(dir string) {
@@ -225,6 +239,13 @@ func (q *Queue) startPushingToUnclaimedChan() func() {
 				}
 
 				for _, fileName := range messageFiles {
+
+					// if the filename unix nano is in the future, skip it
+					attemptAt, _ := strconv.ParseInt(fileName, 10, 64)
+					if attemptAt > time.Now().UnixNano() {
+						continue
+					}
+
 					select {
 					case <-stop:
 						return
@@ -244,10 +265,4 @@ func (q *Queue) startPushingToUnclaimedChan() func() {
 	return func() {
 		stop <- struct{}{}
 	}
-}
-
-type Message struct {
-	Data             string
-	Attempt          uint8
-	NextAttemptAfter time.Time
 }
