@@ -213,6 +213,7 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 			if msg.Attempt <= q.maxAttempts {
 				data, err := json.Marshal(msg)
 				if err != nil {
+					os.Rename(claimedPath, unclaimedPath)
 					return fmt.Errorf("failed to marshal file into Message: %w", err)
 				}
 
@@ -220,6 +221,7 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 				unclaimedPath := fmt.Sprintf("%s/%d", q.unclaimedDir, time.Now().Add(delay).UnixNano())
 				err = os.WriteFile(unclaimedPath, data, 0666)
 				if err != nil {
+					os.Rename(claimedPath, unclaimedPath)
 					return fmt.Errorf("failed to write next attempt to file: %w", err)
 				}
 			}
