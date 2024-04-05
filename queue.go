@@ -12,8 +12,6 @@ import (
 	"time"
 )
 
-const filePerm = 0666
-
 type Message struct {
 	Data    string
 	Attempt uint8
@@ -50,10 +48,17 @@ func New(name string, options ...QueueOption) (*Queue, QueueCloser) {
 		option(q)
 	}
 
+	mustDir := func(dir string) {
+		err := os.MkdirAll(dir, 0777)
+		if err != nil {
+			panic(err)
+		}
+	}
+
 	q.unclaimedDir = fmt.Sprintf("%s/unclaimed", q.dataDir)
-	q.mustDir(q.unclaimedDir)
+	mustDir(q.unclaimedDir)
 	q.claimedDir = fmt.Sprintf("%s/claimed", q.dataDir)
-	q.mustDir(q.claimedDir)
+	mustDir(q.claimedDir)
 
 	stop := q.startPushingToUnclaimedChan()
 	return q, stop
@@ -92,11 +97,25 @@ func (q *Queue) Publish(msg *Message) error {
 	}
 
 	// Write the file
-	return os.WriteFile(filename, data, filePerm)
+	return os.WriteFile(filename, data, 0666)
 }
 
 func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Message) error) error {
 
+	// calculate the next attempt delay
+	nextAttemptIn := func(msg *Message) time.Duration {
+		multiplier := (math.Pow(2, float64(msg.Attempt-1)) - 1) / 2
+		delay := time.Duration(multiplier) * q.minRetryDelay
+		if delay < q.minRetryDelay {
+			delay = q.minRetryDelay
+		}
+		if delay > q.maxRetryDelay {
+			delay = q.maxRetryDelay
+		}
+		return delay
+	}
+
+	// claim a file/message so that it is not processed by another worker
 	claim := func(fileName string) (bool, func()) {
 		q.Lock()
 		defer q.Unlock()
@@ -117,57 +136,55 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 		}
 	}
 
+	// execute the handler and remove the file upon success
+	// or requeue the message upon failure
 	process := func(fileName string) error {
-
 		claimedPath := fmt.Sprintf("%s/%s", q.claimedDir, fileName)
 		unclaimedPath := fmt.Sprintf("%s/%s", q.unclaimedDir, fileName)
 
+		// move the file to claimed directory, so it is not repeatedly added to the unclaimed channel
 		err := os.Rename(unclaimedPath, claimedPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to move file to the claimed dir: %w", err)
 		}
 
-		// open the file for read/write
-		file, err := os.OpenFile(claimedPath, os.O_RDONLY, filePerm)
+		file, err := os.OpenFile(claimedPath, os.O_RDONLY, 0666)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to open file: %w", err)
 		}
 
 		bytes, err := io.ReadAll(file)
 		if err != nil {
-			// TODO:
-			return err
+			return fmt.Errorf("failed to read file contents: %w", err)
 		}
 
 		err = file.Close()
 		if err != nil {
-			// TODO:
-			return err
+			return fmt.Errorf("failed to close file: %w", err)
 		}
 
 		msg := &Message{}
 		err = json.Unmarshal(bytes, msg)
 		if err != nil {
-			// TODO: delete the file and log the anomaly
-			return err
+			return fmt.Errorf("failed to unmarshal file into Message: %w", err)
 		}
 
 		err = handler(ctx, msg)
 		if err != nil {
 			msg.Attempt = msg.Attempt + 1
+
+			// requeue the message if it has not reached the max attempts
 			if msg.Attempt <= q.maxAttempts {
 				data, err := json.Marshal(msg)
 				if err != nil {
-					// TODO:
-					return err
+					return fmt.Errorf("failed to marshal file into Message: %w", err)
 				}
 
-				delay := q.nextAttemptIn(msg)
+				delay := nextAttemptIn(msg)
 				unclaimedPath := fmt.Sprintf("%s/%d", q.unclaimedDir, time.Now().Add(delay).UnixNano())
-				err = os.WriteFile(unclaimedPath, data, filePerm)
+				err = os.WriteFile(unclaimedPath, data, 0666)
 				if err != nil {
-					// TODO:
-					return err
+					return fmt.Errorf("failed to write next attempt to file: %w", err)
 				}
 			}
 		}
@@ -175,12 +192,14 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 		return os.Remove(claimedPath)
 	}
 
+	// consume files from the unclaimed channel
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case fileName := <-q.unclaimedChan:
 			ok, release := claim(fileName)
+
 			// skip if the message is already claimed
 			if !ok {
 				continue
@@ -195,25 +214,7 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 	}
 }
 
-func (q *Queue) nextAttemptIn(msg *Message) time.Duration {
-	mult := (math.Pow(2, float64(msg.Attempt-1)) - 1) / 2
-	delay := time.Duration(mult) * q.minRetryDelay
-	if delay < q.minRetryDelay {
-		delay = q.minRetryDelay
-	}
-	if delay > q.maxRetryDelay {
-		delay = q.maxRetryDelay
-	}
-	return delay
-}
-
-func (q *Queue) mustDir(dir string) {
-	err := os.MkdirAll(dir, 0777)
-	if err != nil {
-		panic(err)
-	}
-}
-
+// directory listing on the unclaimed directory and push the file names to the unclaimed channel
 func (q *Queue) startPushingToUnclaimedChan() func() {
 	stop := make(chan struct{})
 
