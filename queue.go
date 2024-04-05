@@ -223,7 +223,7 @@ func (q *Queue) startPushingToUnclaimedChan() func() {
 			select {
 			case <-stop:
 				return
-			case <-time.After(1 * time.Second):
+			case <-time.After(200 * time.Millisecond):
 			}
 
 			unclaimedDir, err := os.Open(q.unclaimedDir)
