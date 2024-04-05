@@ -1,3 +1,6 @@
+// Package diskoque provides a file-based message queue system.
+// It enables persistent message queueing by writing messages to disk and
+// supports controlled message retries with exponential backoff.
 package diskoque
 
 import (
@@ -12,11 +15,18 @@ import (
 	"time"
 )
 
+// Message represents a message within the diskoque system.
+// Data holds the message content, and Attempt tracks the number of attempts
+// made to process this message.
 type Message struct {
 	Data    string
 	Attempt uint8
 }
 
+// Queue represents a queue in the diskoque system. It manages the lifecycle
+// of messages from when they're published to when they're received and
+// processed. The queue uses a file-based system to persist messages across
+// restarts and failures.
 type Queue struct {
 	dataDir       string
 	unclaimedDir  string
@@ -32,9 +42,15 @@ type Queue struct {
 	debugReadFiles map[string]struct{}
 }
 
+// QueueOption defines a function signature for options that can be passed to the New function to configure a Queue.
 type QueueOption func(*Queue)
+
+// QueueCloser defines a function signature for a function returned by New to stop the queue processing.
 type QueueCloser func()
 
+// New initializes a new Queue with the specified name and options. It sets up the necessary directories for the queue
+// and starts the internal process for pushing unclaimed messages to be processed. It returns a Queue pointer and a QueueCloser
+// function to cleanly stop the queue processing.
 func New(name string, options ...QueueOption) (*Queue, QueueCloser) {
 	q := &Queue{
 		dataDir:        fmt.Sprintf("/data/%s", name),
@@ -64,18 +80,22 @@ func New(name string, options ...QueueOption) (*Queue, QueueCloser) {
 	return q, stop
 }
 
+// WithDataDirectory is a QueueOption to specify a custom directory for storing queue data files.
 func WithDataDirectory(dataDir string) QueueOption {
 	return func(q *Queue) {
 		q.dataDir = dataDir
 	}
 }
 
+// WithMaxAttempts is a QueueOption to set the maximum number of attempts to process a message before it's considered failed.
 func WithMaxAttempts(maxAttempts uint8) QueueOption {
 	return func(q *Queue) {
 		q.maxAttempts = maxAttempts
 	}
 }
 
+// WithExponentialBackoff is a QueueOption to configure the retry delay for messages using exponential backoff strategy,
+// with specified minimum and maximum retry delays. If unspecified, the default retry delay is 0 (immediate).
 func WithExponentialBackoff(minRetryDelay time.Duration, maxRetryDelay time.Duration) QueueOption {
 	return func(q *Queue) {
 		q.minRetryDelay = minRetryDelay
@@ -83,6 +103,8 @@ func WithExponentialBackoff(minRetryDelay time.Duration, maxRetryDelay time.Dura
 	}
 }
 
+// Publish adds a new message to the queue. It automatically sets the attempt count to 1
+// and stores the message in the unclaimed directory for processing.
 func (q *Queue) Publish(msg *Message) error {
 	// Set default metadata
 	msg.Attempt = 1
@@ -100,6 +122,9 @@ func (q *Queue) Publish(msg *Message) error {
 	return os.WriteFile(filename, data, 0666)
 }
 
+// Receive starts processing messages from the queue. It listens for new or requeued messages,
+// processes them using the provided handler function, and manages message retry logic based
+// on the handler's success or failure. The process continues until the context is canceled.
 func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Message) error) error {
 
 	// calculate the next attempt delay
