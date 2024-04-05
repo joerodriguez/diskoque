@@ -85,24 +85,24 @@ func main() {
 diskoque is designed to be fast. Here are some benchmark results showing the overhead per message with various worker
 counts, on an M1 Ultra:
 ```bash
-joerodriguez@Josephs-MacBook-Pro diskoque % go test ./... -bench=.
+joerodriguez@Josephs-MacBook-Pro diskoque % go test ./... -bench=. -benchtime=1s
 goos: darwin
 goarch: arm64
 pkg: github.com/joerodriguez/diskoque
-BenchmarkQueue/1_workers-10                  199           8537964 ns/op
-BenchmarkQueue/2_workers-10                  252           5022640 ns/op
-BenchmarkQueue/4_workers-10                  336           5590483 ns/op
-BenchmarkQueue/8_workers-10                 1785           1069018 ns/op
-BenchmarkQueue/16_workers-10                3412            528523 ns/op
-BenchmarkQueue/32_workers-10                2578            518314 ns/op
-BenchmarkQueue/64_workers-10                3885            433907 ns/op
-BenchmarkQueue/128_workers-10               2358            452674 ns/op
-BenchmarkQueue/256_workers-10               2264            444903 ns/op
-BenchmarkQueue/512_workers-10               2844            566632 ns/op
-BenchmarkQueue/1024_workers-10              2535            534443 ns/op
-BenchmarkQueue/2048_workers-10              2227            509665 ns/op
-BenchmarkQueue/4096_workers-10              2359            473809 ns/op
-BenchmarkQueue/8192_workers-10              1960            575587 ns/op
+BenchmarkQueue/1_workers-10                  218           7241347 ns/op
+BenchmarkQueue/2_workers-10                  457           4344450 ns/op
+BenchmarkQueue/4_workers-10                  406           3015769 ns/op
+BenchmarkQueue/8_workers-10                  469           2666755 ns/op
+BenchmarkQueue/16_workers-10                 548           1936887 ns/op
+BenchmarkQueue/32_workers-10                2790            825647 ns/op
+BenchmarkQueue/64_workers-10                4764            271394 ns/op
+BenchmarkQueue/128_workers-10               4789            266542 ns/op
+BenchmarkQueue/256_workers-10               4143            295462 ns/op
+BenchmarkQueue/512_workers-10               4395            281054 ns/op
+BenchmarkQueue/1024_workers-10              3928            256031 ns/op
+BenchmarkQueue/2048_workers-10              4082            355871 ns/op
+BenchmarkQueue/4096_workers-10              2254            512342 ns/op
+BenchmarkQueue/8192_workers-10              1370            750977 ns/op
 ```
 
 ### Contributing
