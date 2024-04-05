@@ -76,7 +76,7 @@ func New(name string, options ...QueueOption) (*Queue, QueueCloser) {
 	q.claimedDir = fmt.Sprintf("%s/claimed", q.dataDir)
 	mustDir(q.claimedDir)
 
-	stop := q.startPushingToUnclaimedChan()
+	stop := q.startWritingToUnclaimedChan()
 	return q, stop
 }
 
@@ -161,37 +161,48 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 		}
 	}
 
+	readMessageFromFile := func(claimedPath string) (*Message, error) {
+		file, err := os.OpenFile(claimedPath, os.O_RDONLY, 0666)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open file: %w", err)
+		}
+
+		bytes, err := io.ReadAll(file)
+		if err != nil {
+			_ = file.Close()
+			return nil, fmt.Errorf("failed to read file contents: %w", err)
+		}
+
+		err = file.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to close file: %w", err)
+		}
+
+		msg := &Message{}
+		err = json.Unmarshal(bytes, msg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal file into Message: %w", err)
+		}
+
+		return msg, nil
+	}
+
 	// execute the handler and remove the file upon success
 	// or requeue the message upon failure
 	process := func(fileName string) error {
 		claimedPath := fmt.Sprintf("%s/%s", q.claimedDir, fileName)
 		unclaimedPath := fmt.Sprintf("%s/%s", q.unclaimedDir, fileName)
 
-		// move the file to claimed directory, so it is not repeatedly added to the unclaimed channel
+		// move the file to claimed directory, so it is not repeatedly written to the unclaimed channel
 		err := os.Rename(unclaimedPath, claimedPath)
 		if err != nil {
 			return fmt.Errorf("failed to move file to the claimed dir: %w", err)
 		}
 
-		file, err := os.OpenFile(claimedPath, os.O_RDONLY, 0666)
+		msg, err := readMessageFromFile(claimedPath)
 		if err != nil {
-			return fmt.Errorf("failed to open file: %w", err)
-		}
-
-		bytes, err := io.ReadAll(file)
-		if err != nil {
-			return fmt.Errorf("failed to read file contents: %w", err)
-		}
-
-		err = file.Close()
-		if err != nil {
-			return fmt.Errorf("failed to close file: %w", err)
-		}
-
-		msg := &Message{}
-		err = json.Unmarshal(bytes, msg)
-		if err != nil {
-			return fmt.Errorf("failed to unmarshal file into Message: %w", err)
+			os.Rename(claimedPath, unclaimedPath)
+			return err
 		}
 
 		err = handler(ctx, msg)
@@ -240,7 +251,7 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 }
 
 // directory listing on the unclaimed directory and push the file names to the unclaimed channel
-func (q *Queue) startPushingToUnclaimedChan() func() {
+func (q *Queue) startWritingToUnclaimedChan() func() {
 	stop := make(chan struct{})
 
 	go func() {
