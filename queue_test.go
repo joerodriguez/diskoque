@@ -27,11 +27,11 @@ func TestQueue(t *testing.T) {
 		}
 		defer os.RemoveAll(dir)
 
-		q, closeQ := diskoque.New(
+		q := diskoque.New(
 			"test-exactly-once",
 			diskoque.WithDataDirectory(dir),
+			diskoque.WithMaxInFlightMessages(numWorkers),
 		)
-		defer closeQ()
 
 		go func() {
 			for i := 0; i < numMessages; i++ {
@@ -45,7 +45,6 @@ func TestQueue(t *testing.T) {
 		}()
 
 		success := make(chan struct{})
-		wg := sync.WaitGroup{}
 		m := sync.Mutex{}
 		eventsProcessed := make(map[string]struct{})
 		processed := func(data string) {
@@ -64,22 +63,20 @@ func TestQueue(t *testing.T) {
 			}
 		}
 
-		for i := 0; i < numWorkers; i++ {
-			wg.Add(1)
-			go func() {
-				_ = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
-					processed(msg.Data)
-					return nil
-				})
+		done := make(chan struct{})
+		go func() {
+			_ = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
+				processed(msg.Data)
+				return nil
+			})
 
-				wg.Done()
-			}()
-		}
+			close(done)
+		}()
 
 		<-success
 
 		cancel()
-		wg.Wait()
+		<-done
 	})
 
 	t.Run("messages are retried", func(t *testing.T) {
@@ -92,13 +89,12 @@ func TestQueue(t *testing.T) {
 		}
 		defer os.RemoveAll(dir)
 
-		q, closeQ := diskoque.New(
+		q := diskoque.New(
 			"test-exactly-once",
 			diskoque.WithDataDirectory(dir),
 			diskoque.WithMaxAttempts(2),
 			diskoque.WithExponentialBackoff(time.Microsecond, time.Millisecond),
 		)
-		defer closeQ()
 
 		err = q.Publish(&diskoque.Message{
 			Data: "message data",
@@ -158,11 +154,11 @@ func BenchmarkQueue(b *testing.B) {
 			}
 			defer os.RemoveAll(dir)
 
-			q, closeQ := diskoque.New(
+			q := diskoque.New(
 				fmt.Sprintf("benchmark-%d-workers", bm.numWorkers),
 				diskoque.WithDataDirectory(dir),
+				diskoque.WithMaxInFlightMessages(bm.numWorkers),
 			)
-			defer closeQ()
 
 			wg := sync.WaitGroup{}
 			wg.Add(b.N)
@@ -176,15 +172,12 @@ func BenchmarkQueue(b *testing.B) {
 				}
 			}()
 
-			// start bm.numWorkers workers to process messages
-			for i := 0; i < bm.numWorkers; i++ {
-				go func() {
-					_ = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
-						wg.Done()
-						return nil
-					})
-				}()
-			}
+			go func() {
+				_ = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
+					wg.Done()
+					return nil
+				})
+			}()
 
 			wg.Wait()
 

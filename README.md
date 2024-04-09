@@ -41,13 +41,12 @@ import (
 
 func main() {
 	// Initialize a new queue
-	q, closeq := diskoque.New(
+	q := diskoque.New(
 		"myQueue",
 		diskoque.WithDataDirectory("/path/to/data/directory"),
 		diskoque.WithMaxAttempts(5),
 		diskoque.WithExponentialBackoff(1*time.Second, 30*time.Second),
 	)
-	defer closeq()
 
 	// Publish a message
 	err := q.Publish(&diskoque.Message{
@@ -89,20 +88,20 @@ joerodriguez@Josephs-MacBook-Pro diskoque % go test ./... -bench=. -benchtime=1s
 goos: darwin
 goarch: arm64
 pkg: github.com/joerodriguez/diskoque
-BenchmarkQueue/1_workers-10                  218           7241347 ns/op
-BenchmarkQueue/2_workers-10                  457           4344450 ns/op
-BenchmarkQueue/4_workers-10                  406           3015769 ns/op
-BenchmarkQueue/8_workers-10                  469           2666755 ns/op
-BenchmarkQueue/16_workers-10                 548           1936887 ns/op
-BenchmarkQueue/32_workers-10                2790            825647 ns/op
-BenchmarkQueue/64_workers-10                4764            271394 ns/op
-BenchmarkQueue/128_workers-10               4789            266542 ns/op
-BenchmarkQueue/256_workers-10               4143            295462 ns/op
-BenchmarkQueue/512_workers-10               4395            281054 ns/op
-BenchmarkQueue/1024_workers-10              3928            256031 ns/op
-BenchmarkQueue/2048_workers-10              4082            355871 ns/op
-BenchmarkQueue/4096_workers-10              2254            512342 ns/op
-BenchmarkQueue/8192_workers-10              1370            750977 ns/op
+BenchmarkQueue/1_workers-10                 4602            251663 ns/op
+BenchmarkQueue/2_workers-10                 4017            304067 ns/op
+BenchmarkQueue/4_workers-10                 3807            285747 ns/op
+BenchmarkQueue/8_workers-10                 3942            387729 ns/op
+BenchmarkQueue/16_workers-10                5188            253890 ns/op
+BenchmarkQueue/32_workers-10                4730            279721 ns/op
+BenchmarkQueue/64_workers-10                4867            292323 ns/op
+BenchmarkQueue/128_workers-10               4777            308074 ns/op
+BenchmarkQueue/256_workers-10               4929            323642 ns/op
+BenchmarkQueue/512_workers-10               4226            410376 ns/op
+BenchmarkQueue/1024_workers-10              4735            239674 ns/op
+BenchmarkQueue/2048_workers-10              4417            308689 ns/op
+BenchmarkQueue/4096_workers-10              4630            299330 ns/op
+BenchmarkQueue/8192_workers-10              4138            265115 ns/op
 ```
 
 ### Contributing
