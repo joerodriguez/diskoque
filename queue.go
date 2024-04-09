@@ -28,16 +28,17 @@ type Message struct {
 // processed. The queue uses a file-based system to persist messages across
 // restarts and failures.
 type Queue struct {
-	dataDir       string
-	unclaimedDir  string
-	claimedDir    string
-	maxAttempts   uint8
-	minRetryDelay time.Duration
-	maxRetryDelay time.Duration
+	dataDir             string
+	unclaimedDir        string
+	claimedDir          string
+	maxAttempts         uint8
+	minRetryDelay       time.Duration
+	maxRetryDelay       time.Duration
+	maxInFlightMessages int
 
 	unclaimedChan chan string
 
-	sync.Mutex
+	sync.RWMutex
 	lockedMessages map[string]struct{}
 	debugReadFiles map[string]struct{}
 }
@@ -51,13 +52,14 @@ type QueueCloser func()
 // New initializes a new Queue with the specified name and options. It sets up the necessary directories for the queue
 // and starts the internal process for pushing unclaimed messages to be processed. It returns a Queue pointer and a QueueCloser
 // function to cleanly stop the queue processing.
-func New(name string, options ...QueueOption) (*Queue, QueueCloser) {
+func New(name string, options ...QueueOption) *Queue {
 	q := &Queue{
-		dataDir:        fmt.Sprintf("/data/%s", name),
-		maxAttempts:    1,
-		lockedMessages: make(map[string]struct{}),
-		debugReadFiles: make(map[string]struct{}),
-		unclaimedChan:  make(chan string),
+		dataDir:             fmt.Sprintf("/data/%s", name),
+		maxAttempts:         1,
+		maxInFlightMessages: 1,
+		lockedMessages:      make(map[string]struct{}),
+		debugReadFiles:      make(map[string]struct{}),
+		unclaimedChan:       make(chan string),
 	}
 
 	for _, option := range options {
@@ -76,8 +78,7 @@ func New(name string, options ...QueueOption) (*Queue, QueueCloser) {
 	q.claimedDir = fmt.Sprintf("%s/claimed", q.dataDir)
 	mustDir(q.claimedDir)
 
-	stop := q.startWritingToUnclaimedChan()
-	return q, stop
+	return q
 }
 
 // WithDataDirectory is a QueueOption to specify a custom directory for storing queue data files.
@@ -100,6 +101,13 @@ func WithExponentialBackoff(minRetryDelay time.Duration, maxRetryDelay time.Dura
 	return func(q *Queue) {
 		q.minRetryDelay = minRetryDelay
 		q.maxRetryDelay = maxRetryDelay
+	}
+}
+
+// WithMaxInFlightMessages controls the number of messages that can be processed concurrently by the queue.
+func WithMaxInFlightMessages(numMessages int) QueueOption {
+	return func(q *Queue) {
+		q.maxInFlightMessages = numMessages
 	}
 }
 
@@ -142,16 +150,18 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 
 	// claim a file/message so that it is not processed by another worker
 	claim := func(fileName string) (bool, func()) {
-		q.Lock()
-		defer q.Unlock()
 
+		q.RLock()
 		_, ok := q.lockedMessages[fileName]
+		q.RUnlock()
 
 		// message is already being worked
 		if ok {
 			return false, nil
 		}
 
+		q.Lock()
+		defer q.Unlock()
 		q.lockedMessages[fileName] = struct{}{}
 
 		return true, func() {
@@ -230,10 +240,13 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 		return os.Remove(claimedPath)
 	}
 
+	stopWritingToUnclaimedChan := q.startWritingToUnclaimedChan()
+
 	// consume files from the unclaimed channel
 	for {
 		select {
 		case <-ctx.Done():
+			stopWritingToUnclaimedChan()
 			return ctx.Err()
 		case fileName := <-q.unclaimedChan:
 			ok, release := claim(fileName)
@@ -243,11 +256,13 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 				continue
 			}
 
-			err := process(fileName)
-			release()
-			if err != nil {
-				fmt.Println(err.Error())
-			}
+			go func() {
+				err := process(fileName)
+				release()
+				if err != nil {
+					fmt.Println(err.Error())
+				}
+			}()
 		}
 	}
 }
@@ -271,7 +286,11 @@ func (q *Queue) startWritingToUnclaimedChan() func() {
 			}
 
 			for {
-				messageFiles, _ := unclaimedDir.Readdirnames(10)
+				q.RLock()
+				unutilizedCapacity := q.maxInFlightMessages - len(q.lockedMessages)
+				q.RUnlock()
+
+				messageFiles, _ := unclaimedDir.Readdirnames(unutilizedCapacity)
 
 				if len(messageFiles) == 0 {
 					break
