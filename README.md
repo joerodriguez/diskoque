@@ -88,20 +88,20 @@ joerodriguez@Josephs-MacBook-Pro diskoque % go test ./... -bench=. -benchtime=1s
 goos: darwin
 goarch: arm64
 pkg: github.com/joerodriguez/diskoque
-BenchmarkQueue/1_workers-10                 4602            251663 ns/op
-BenchmarkQueue/2_workers-10                 4017            304067 ns/op
-BenchmarkQueue/4_workers-10                 3807            285747 ns/op
-BenchmarkQueue/8_workers-10                 3942            387729 ns/op
-BenchmarkQueue/16_workers-10                5188            253890 ns/op
-BenchmarkQueue/32_workers-10                4730            279721 ns/op
-BenchmarkQueue/64_workers-10                4867            292323 ns/op
-BenchmarkQueue/128_workers-10               4777            308074 ns/op
-BenchmarkQueue/256_workers-10               4929            323642 ns/op
-BenchmarkQueue/512_workers-10               4226            410376 ns/op
-BenchmarkQueue/1024_workers-10              4735            239674 ns/op
-BenchmarkQueue/2048_workers-10              4417            308689 ns/op
-BenchmarkQueue/4096_workers-10              4630            299330 ns/op
-BenchmarkQueue/8192_workers-10              4138            265115 ns/op
+BenchmarkQueue/1_workers-10                   10         102669754 ns/op
+BenchmarkQueue/2_workers-10                   10         102528692 ns/op
+BenchmarkQueue/4_workers-10                   20          51409265 ns/op
+BenchmarkQueue/8_workers-10                   37          28135690 ns/op
+BenchmarkQueue/16_workers-10                 284          13201983 ns/op
+BenchmarkQueue/32_workers-10                 145           7374051 ns/op
+BenchmarkQueue/64_workers-10                 283           3809378 ns/op
+BenchmarkQueue/128_workers-10                487           2603037 ns/op
+BenchmarkQueue/256_workers-10               1146            958305 ns/op
+BenchmarkQueue/512_workers-10               2218            502074 ns/op
+BenchmarkQueue/1024_workers-10              4723            242746 ns/op
+BenchmarkQueue/2048_workers-10              1418            836112 ns/op
+BenchmarkQueue/4096_workers-10              4810            266283 ns/op
+BenchmarkQueue/8192_workers-10              4432            264740 ns/op
 ```
 
 ### Contributing

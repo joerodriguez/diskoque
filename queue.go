@@ -281,6 +281,10 @@ func (q *Queue) startWritingToUnclaimedChan() func() {
 		unutilizedCapacity := q.maxInFlightMessages - len(q.lockedMessages)
 		q.RUnlock()
 
+		if unutilizedCapacity < 0 {
+			return 0
+		}
+
 		if unutilizedCapacity < MaxMessagesToStartSimultaneously {
 			return unutilizedCapacity
 		}
@@ -303,7 +307,12 @@ func (q *Queue) startWritingToUnclaimedChan() func() {
 			}
 
 			for {
-				messageFiles, _ := unclaimedDir.Readdirnames(numberOfMessagesToProcess())
+				toProcess := numberOfMessagesToProcess()
+				if toProcess == 0 {
+					break
+				}
+
+				messageFiles, _ := unclaimedDir.Readdirnames(toProcess)
 
 				if len(messageFiles) == 0 {
 					break
