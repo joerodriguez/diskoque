@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -50,11 +51,11 @@ type QueueOption func(*Queue)
 type QueueCloser func()
 
 // New initializes a new Queue with the specified name and options. It sets up the necessary directories for the queue
-// and starts the internal process for pushing unclaimed messages to be processed. It returns a Queue pointer and a QueueCloser
-// function to cleanly stop the queue processing.
+// and starts the internal process for pushing unclaimed messages to be processed. It returns a Queue pointer and a
+// QueueCloser function to cleanly stop the queue processing.
 func New(name string, options ...QueueOption) *Queue {
 	q := &Queue{
-		dataDir:             fmt.Sprintf("/data/%s", name),
+		dataDir:             filepath.Join("/data", name),
 		maxAttempts:         1,
 		maxInFlightMessages: 1,
 		lockedMessages:      make(map[string]struct{}),
@@ -73,10 +74,12 @@ func New(name string, options ...QueueOption) *Queue {
 		}
 	}
 
-	q.unclaimedDir = fmt.Sprintf("%s/unclaimed", q.dataDir)
+	q.unclaimedDir = filepath.Join(q.dataDir, "unclaimed")
 	mustDir(q.unclaimedDir)
-	q.claimedDir = fmt.Sprintf("%s/claimed", q.dataDir)
+	q.claimedDir = filepath.Join(q.dataDir, "claimed")
 	mustDir(q.claimedDir)
+
+	q.unclaimAllAbortedMessages()
 
 	return q
 }
@@ -88,7 +91,8 @@ func WithDataDirectory(dataDir string) QueueOption {
 	}
 }
 
-// WithMaxAttempts is a QueueOption to set the maximum number of attempts to process a message before it's considered failed.
+// WithMaxAttempts is a QueueOption to set the maximum number of attempts to process a message before it's considered
+// failed.
 func WithMaxAttempts(maxAttempts uint8) QueueOption {
 	return func(q *Queue) {
 		q.maxAttempts = maxAttempts
@@ -118,7 +122,7 @@ func (q *Queue) Publish(msg *Message) error {
 	msg.Attempt = 1
 
 	// Generate a unique filename for the message
-	filename := fmt.Sprintf("%s/%d", q.unclaimedDir, time.Now().UnixNano())
+	filename := filepath.Join(q.unclaimedDir, strconv.FormatInt(time.Now().UnixNano(), 10))
 
 	// Marshal the message to JSON for storage
 	data, err := json.Marshal(msg)
@@ -200,8 +204,8 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 	// execute the handler and remove the file upon success
 	// or requeue the message upon failure
 	process := func(fileName string) error {
-		claimedPath := fmt.Sprintf("%s/%s", q.claimedDir, fileName)
-		unclaimedPath := fmt.Sprintf("%s/%s", q.unclaimedDir, fileName)
+		claimedPath := filepath.Join(q.claimedDir, fileName)
+		unclaimedPath := filepath.Join(q.unclaimedDir, fileName)
 
 		// move the file to claimed directory, so it is not repeatedly written to the unclaimed channel
 		err := os.Rename(unclaimedPath, claimedPath)
@@ -271,6 +275,19 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 func (q *Queue) startWritingToUnclaimedChan() func() {
 	stop := make(chan struct{})
 
+	const MaxMessagesToStartSimultaneously = 500
+	numberOfMessagesToProcess := func() int {
+		q.RLock()
+		unutilizedCapacity := q.maxInFlightMessages - len(q.lockedMessages)
+		q.RUnlock()
+
+		if unutilizedCapacity < MaxMessagesToStartSimultaneously {
+			return unutilizedCapacity
+		}
+
+		return MaxMessagesToStartSimultaneously
+	}
+
 	go func() {
 		for {
 			select {
@@ -286,11 +303,7 @@ func (q *Queue) startWritingToUnclaimedChan() func() {
 			}
 
 			for {
-				q.RLock()
-				unutilizedCapacity := q.maxInFlightMessages - len(q.lockedMessages)
-				q.RUnlock()
-
-				messageFiles, _ := unclaimedDir.Readdirnames(unutilizedCapacity)
+				messageFiles, _ := unclaimedDir.Readdirnames(numberOfMessagesToProcess())
 
 				if len(messageFiles) == 0 {
 					break
@@ -322,5 +335,28 @@ func (q *Queue) startWritingToUnclaimedChan() func() {
 
 	return func() {
 		stop <- struct{}{}
+	}
+}
+
+// if the process crashed while messages were being processed, they'll be stuck in the claimed directory.
+func (q *Queue) unclaimAllAbortedMessages() {
+	claimedDir, err := os.Open(q.claimedDir)
+	if err != nil {
+		panic(err)
+	}
+
+	for {
+		messageFiles, _ := claimedDir.Readdirnames(100)
+
+		if len(messageFiles) == 0 {
+			break
+		}
+
+		for _, fileName := range messageFiles {
+			// move the stuck message/file to the unclaimed directory
+			claimedPath := filepath.Join(q.claimedDir, fileName)
+			unclaimedPath := filepath.Join(q.unclaimedDir, fileName)
+			os.Rename(claimedPath, unclaimedPath)
+		}
 	}
 }
