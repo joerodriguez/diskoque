@@ -124,7 +124,7 @@ func TestQueue(t *testing.T) {
 		}
 	})
 
-	t.Run("in-flight who experience unexpected process termination are processed", func(t *testing.T) {
+	t.Run("in-flight messages who experience unexpected process termination are processed", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 
 		// create a temporary directory to store the queue data
