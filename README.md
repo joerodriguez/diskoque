@@ -1,21 +1,21 @@
 # diskoque
 
-diskoque (pronounced *di · skow · kyoo*) is a high-performance, disk-based queue system for Go applications, designed to efficiently manage asynchronous tasks with minimal overhead. With a focus on simplicity and reliability, diskoque leverages the file system to persist jobs, ensuring that your tasks are maintained across restarts without any external dependencies.
-
+diskoque (pronounced di·skow·kyoo) is a high-performance, disk-based queue system for Go applications, designed to manage asynchronous tasks efficiently with minimal overhead. With a focus on simplicity and reliability, diskoque offers multiple storage backend options, including the filesystem and LevelDB, to persist jobs, ensuring your tasks are maintained across restarts with the flexibility to suit different requirements.
 <p align="center">
 <img src="docs/logo.webp" alt="Logo" width="300" >
 </p>
 
 ## Features
 
-- **Disk-based Persistence**: Each message is stored as a JSON file, making your jobs resilient across application restarts.
-- **Out-of-Order Processing**: Optimized for use cases where tasks can be executed independently and concurrently, without the need for FIFO ordering.
-- **High Performance**: Engineered for speed, adding only about 2ms overhead per message with 8 workers.
-- **Scalable**: Seamlessly scales with your workload by adjusting the number of workers.
+- **Multiple Storage Backends**: Choose between flat file storage for simplicity or LevelDB for ordered (FIFO) processing and efficient storage management.
+- **Disk-based Persistence**: Ensures that your jobs are resilient across application restarts.
+- **FIFO and Out-of-Order Processing**: LevelDB backend provides FIFO processing, while the flat file system allows for concurrent, out-of-order task execution.
+- **High Performance**: Engineered for speed, with performance optimized for each storage backend.
+- **Scalable**: Adjust the number of workers to seamlessly scale with your workload.
 - **Retry Mechanism**: Supports retries with exponential back-off, ensuring messages are processed even in case of temporary failures.
-- **Simple API**: Easy to integrate with your existing Go applications.
-- **No External Dependencies**: Runs standalone without the need for additional services or databases.
-- **Single-Process Design**: Optimized for single-process environments, diskoque utilizes in-process message locking for managing concurrent access to tasks. This design simplifies deployment and reduces the complexity associated with distributed systems, making it an ideal choice for applications that can benefit from straightforward, process-local task management.
+- **Simple API**: Easy to integrate with existing Go applications.
+- **No External Dependencies (for flat file storage)**: Runs standalone without the need for additional services or databases.
+- **Flexible and Lightweight**: Offers a single-process design ideal for straightforward, process-local task management, with optional use of LevelDB for applications requiring ordered processing.
 
 ## Getting Started
 
@@ -27,7 +27,8 @@ go get github.com/joerodriguez/diskoque
 
 ### Usage
 
-Create a new queue, publish messages to it, and start receiving them:
+Create a new queue, publish messages to it, and start receiving them. The following example uses the LevelDB storage backend for FIFO message processing:
+
 ```go
 package main
 
@@ -37,13 +38,19 @@ import (
 	"time"
 
 	"github.com/joerodriguez/diskoque"
+	"github.com/joerodriguez/diskoque/store"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 func main() {
-	// Initialize a new queue
+	db, err := leveldb.OpenFile("/path/to/leveldb/db", nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+	
 	q := diskoque.New(
-		"myQueue",
-		diskoque.WithDataDirectory("/path/to/data/directory"),
+		diskoque.WithStore(store.NewLevelDB(db)),
 		diskoque.WithMaxAttempts(5),
 		diskoque.WithExponentialBackoff(1*time.Second, 30*time.Second),
 	)
@@ -81,27 +88,28 @@ func main() {
 
 ### Benchmarks
 
-diskoque is designed to be fast. Here are some benchmark results showing the overhead per message with various worker
-counts, on an M1 Ultra:
+diskoque is designed for fast and efficient operation. Benchmark results showcase the overhead per message with various 
+worker counts, demonstrating scalability and performance:
+
 ```bash
-joerodriguez@Josephs-MacBook-Pro diskoque % go test ./... -bench=. -benchtime=1s
+joerodriguez@Josephs-MacBook-Pro diskoque % go test ./... -bench=. -benchtime=1s      
 goos: darwin
 goarch: arm64
 pkg: github.com/joerodriguez/diskoque
-BenchmarkQueue/1_workers-10                   10         102669754 ns/op
-BenchmarkQueue/2_workers-10                   10         102528692 ns/op
-BenchmarkQueue/4_workers-10                   20          51409265 ns/op
-BenchmarkQueue/8_workers-10                   37          28135690 ns/op
-BenchmarkQueue/16_workers-10                 284          13201983 ns/op
-BenchmarkQueue/32_workers-10                 145           7374051 ns/op
-BenchmarkQueue/64_workers-10                 283           3809378 ns/op
-BenchmarkQueue/128_workers-10                487           2603037 ns/op
-BenchmarkQueue/256_workers-10               1146            958305 ns/op
-BenchmarkQueue/512_workers-10               2218            502074 ns/op
-BenchmarkQueue/1024_workers-10              4723            242746 ns/op
-BenchmarkQueue/2048_workers-10              1418            836112 ns/op
-BenchmarkQueue/4096_workers-10              4810            266283 ns/op
-BenchmarkQueue/8192_workers-10              4432            264740 ns/op
+BenchmarkQueue/1_workers-10                   10         103303988 ns/op
+BenchmarkQueue/2_workers-10                   10         103118550 ns/op
+BenchmarkQueue/4_workers-10                   20          51828981 ns/op
+BenchmarkQueue/8_workers-10                   54          23024576 ns/op
+BenchmarkQueue/16_workers-10                 195           6372899 ns/op
+BenchmarkQueue/32_workers-10                 381           4344950 ns/op
+BenchmarkQueue/64_workers-10                 505           2071964 ns/op
+BenchmarkQueue/128_workers-10               1236           1667096 ns/op
+BenchmarkQueue/256_workers-10               1408            757980 ns/op
+BenchmarkQueue/512_workers-10               2713            401034 ns/op
+BenchmarkQueue/1024_workers-10              4768            235397 ns/op
+BenchmarkQueue/2048_workers-10              8752            135257 ns/op
+BenchmarkQueue/4096_workers-10             18918             64447 ns/op
+BenchmarkQueue/8192_workers-10             51955             22321 ns/op
 ```
 
 ### Contributing

@@ -4,14 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/joerodriguez/diskoque/internal/store"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/joerodriguez/diskoque"
+	"github.com/joerodriguez/diskoque/store"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 func TestQueue(t *testing.T) {
@@ -28,8 +30,13 @@ func TestQueue(t *testing.T) {
 		}
 		defer os.RemoveAll(dir)
 
+		db, err := leveldb.OpenFile(filepath.Join(dir, "db"), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
 		q := diskoque.New(
-			diskoque.WithStore(store.NewFlatFiles(dir)),
+			diskoque.WithStore(store.NewLevelDB(db)),
 			diskoque.WithMaxInFlightMessages(numWorkers),
 		)
 
@@ -153,8 +160,13 @@ func BenchmarkQueue(b *testing.B) {
 			}
 			defer os.RemoveAll(dir)
 
+			db, err := leveldb.OpenFile(filepath.Join(dir, "db"), nil)
+			if err != nil {
+				b.Fatal(err)
+			}
+
 			q := diskoque.New(
-				diskoque.WithStore(store.NewFlatFiles(dir)),
+				diskoque.WithStore(store.NewLevelDB(db)),
 				diskoque.WithMaxInFlightMessages(bm.numWorkers),
 			)
 

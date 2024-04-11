@@ -5,7 +5,6 @@ package store
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/joerodriguez/diskoque"
 	"io"
 	"math/rand/v2"
 	"os"
@@ -13,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/joerodriguez/diskoque"
 )
 
 // FlatFilesStore implements the diskoque.Store interface using the filesystem.
