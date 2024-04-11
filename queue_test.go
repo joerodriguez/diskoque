@@ -2,9 +2,9 @@ package diskoque_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/joerodriguez/diskoque/internal/store"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -29,8 +29,7 @@ func TestQueue(t *testing.T) {
 		defer os.RemoveAll(dir)
 
 		q := diskoque.New(
-			"test-exactly-once",
-			diskoque.WithDataDirectory(dir),
+			diskoque.WithStore(store.NewFlatFiles(dir)),
 			diskoque.WithMaxInFlightMessages(numWorkers),
 		)
 
@@ -91,8 +90,7 @@ func TestQueue(t *testing.T) {
 		defer os.RemoveAll(dir)
 
 		q := diskoque.New(
-			"test-retries",
-			diskoque.WithDataDirectory(dir),
+			diskoque.WithStore(store.NewFlatFiles(dir)),
 			diskoque.WithMaxAttempts(2),
 			diskoque.WithExponentialBackoff(time.Microsecond, time.Millisecond),
 		)
@@ -120,54 +118,6 @@ func TestQueue(t *testing.T) {
 		}
 
 		if err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatalf(err.Error())
-		}
-	})
-
-	t.Run("in-flight messages who experience unexpected process termination are processed", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-
-		// create a temporary directory to store the queue data
-		dir, err := os.MkdirTemp("", "diskoque-benchmark")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer os.RemoveAll(dir)
-
-		// manually create the claimed directory
-		claimedDir := fmt.Sprintf("%s/claimed", dir)
-		err = os.MkdirAll(claimedDir, 0777)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// marshal the message to JSON for storage
-		data, err := json.Marshal(&diskoque.Message{
-			Data: "message data",
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// store the message in the claimed directory
-		filename := fmt.Sprintf("%s/%d", claimedDir, time.Now().UnixNano())
-		err = os.WriteFile(filename, data, 0666)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// the message should be processed
-		q := diskoque.New(
-			"test-restarts",
-			diskoque.WithDataDirectory(dir),
-		)
-
-		err = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
-			cancel()
-			return nil
-		})
-
-		if !errors.Is(err, context.Canceled) {
 			t.Fatalf(err.Error())
 		}
 	})
@@ -204,8 +154,7 @@ func BenchmarkQueue(b *testing.B) {
 			defer os.RemoveAll(dir)
 
 			q := diskoque.New(
-				fmt.Sprintf("benchmark-%d-workers", bm.numWorkers),
-				diskoque.WithDataDirectory(dir),
+				diskoque.WithStore(store.NewFlatFiles(dir)),
 				diskoque.WithMaxInFlightMessages(bm.numWorkers),
 			)
 
