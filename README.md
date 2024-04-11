@@ -43,45 +43,42 @@ import (
 )
 
 func main() {
-	db, err := leveldb.OpenFile("/path/to/leveldb/db", nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
+    db, err := leveldb.OpenFile("/path/to/leveldb/db", nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    q := diskoque.New(
+        diskoque.WithStore(store.NewLevelDB(db)),
+        diskoque.WithMaxAttempts(5),
+        diskoque.WithExponentialBackoff(1*time.Second, 30*time.Second),
+    )
+    
+    // Publish a message
+    err = q.Publish(&diskoque.Message{
+        Data: "Hello, World!",
+    })
+    if err != nil {
+        log.Fatalf("Failed to publish message: %v", err)
+    }
 	
-	q := diskoque.New(
-		diskoque.WithStore(store.NewLevelDB(db)),
-		diskoque.WithMaxAttempts(5),
-		diskoque.WithExponentialBackoff(1*time.Second, 30*time.Second),
-	)
-
-	// Publish a message
-	err := q.Publish(&diskoque.Message{
-		Data: "Hello, World!",
-	})
-	if err != nil {
-		log.Fatalf("Failed to publish message: %v", err)
-	}
-
-	complete := make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// Receive and process messages
-	go func() {
-		err = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
-			log.Printf("Received message: %s\n", msg.Data)
-			close(complete)
-			return nil
-		})
-
-		if err != nil {
-			log.Fatalf("Receive error: %v", err)
-		}
-	}()
-
-	<-complete
+    ctx, cancel := context.WithCancel(context.Background())
 	
-	cancel()
+    // Receive and process messages
+    // blocks until the context is done
+    err = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
+        log.Printf("Received message: %s\n", msg.Data)
+        cancel()
+        return nil
+    })
+    if err != nil {
+        log.Fatalf("Receive error: %v", err)
+    }
+	
+    err = db.Close()
+    if err != nil {
+        log.Fatalf("failed to close level db: %v", err)
+    }
 }
 
 ```
