@@ -112,18 +112,14 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 
 	// claim a file/message so that it is not processed by another worker
 	claim := func(id MessageID) (bool, func()) {
-
-		q.RLock()
-		_, ok := q.lockedMessages[id]
-		q.RUnlock()
+		q.Lock()
+		defer q.Unlock()
 
 		// message is already being worked
-		if ok {
+		if _, ok := q.lockedMessages[id]; ok {
 			return false, nil
 		}
 
-		q.Lock()
-		defer q.Unlock()
 		q.lockedMessages[id] = struct{}{}
 
 		return true, func() {
@@ -136,7 +132,6 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 	// execute the handler and delete the message upon success
 	// or requeue the message upon failure
 	process := func(id MessageID) error {
-
 		msg, err := q.store.Get(id)
 		if err != nil {
 			return fmt.Errorf("failed to get message from store: %w", err)
@@ -212,11 +207,11 @@ func (q *Queue) startWritingToUnclaimedChan() func() {
 			return 0
 		}
 
-		if unutilizedCapacity < MaxMessagesToStartSimultaneously {
-			return unutilizedCapacity
+		if unutilizedCapacity > MaxMessagesToStartSimultaneously {
+			return MaxMessagesToStartSimultaneously
 		}
 
-		return MaxMessagesToStartSimultaneously
+		return unutilizedCapacity
 	}
 
 	go func() {
@@ -234,6 +229,8 @@ func (q *Queue) startWritingToUnclaimedChan() func() {
 
 			for {
 				toProcess := numberOfMessagesToProcess()
+
+				// we are at capacity
 				if toProcess == 0 {
 					break
 				}

@@ -1,6 +1,6 @@
 # diskoque
 
-diskoque (pronounced di·skow·kyoo) is a high-performance, disk-based queue system for Go applications, designed to manage asynchronous tasks efficiently with minimal overhead. With a focus on simplicity and reliability, diskoque offers multiple storage backend options, including the filesystem and LevelDB, to persist jobs, ensuring your tasks are maintained across restarts with the flexibility to suit different requirements.
+diskoque (pronounced *di · skow · kyoo*) is a high-performance, disk-based queue system for Go applications, designed to manage asynchronous tasks efficiently with minimal overhead. With a focus on simplicity and reliability, diskoque offers multiple storage backend options, including the filesystem and LevelDB, to persist jobs, ensuring your tasks are maintained across restarts with the flexibility to suit different requirements.
 <p align="center">
 <img src="docs/logo.webp" alt="Logo" width="300" >
 </p>
