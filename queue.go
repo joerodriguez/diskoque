@@ -1,6 +1,8 @@
 // Package diskoque provides a file-based message queue system.
 // It enables persistent message queueing by writing messages to disk and
-// supports controlled message retries with exponential backoff.
+// supports controlled message retries with exponential backoff. It includes
+// an integrated circuit breaker to handle high failure rates gracefully by
+// temporarily halting operations to allow the system to recover.
 package diskoque
 
 import (
@@ -45,6 +47,20 @@ type StoreIterator interface {
 	Close() error
 }
 
+// CircuitBreaker defines the interface for integrating circuit breaker functionality.
+// It allows the queue to manage the flow of message processing based on the health of the service or application.
+type CircuitBreaker interface {
+	// State returns the current state of the circuit breaker.
+	State() CircuitBreakerState
+	// Success should be called when a message is successfully processed, indicating healthy operation.
+	Success()
+	// Failure should be called when a message fails to process, indicating potential issues in operation.
+	Failure()
+	// ShouldTrial returns true if the circuit breaker should trial process a message a return to normal operation.
+	ShouldTrial() bool
+}
+
+// CircuitBreakerState represents the possible states of a circuit breaker.
 type CircuitBreakerState int
 
 const (
@@ -57,17 +73,7 @@ const (
 	RecoveryTrial
 )
 
-type CircuitBreaker interface {
-	State() CircuitBreakerState
-
-	// Success and Failure should be called when a message is successfully processed or fails to be processed.
-	Success()
-	Failure()
-
-	// ShouldTrial returns true if the circuit breaker should trial process a message a return to normal operation.
-	ShouldTrial() bool
-}
-
+// ErrCircuitBreakerOpen is the error returned when an operation is attempted while the circuit breaker is open.
 var ErrCircuitBreakerOpen = errors.New("the circuit breaker is open, message can not be published or received at this time")
 
 // Queue represents a queue in the diskoque system. It manages the lifecycle
@@ -225,7 +231,8 @@ func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Mess
 	}
 }
 
-// directory listing on the unclaimed directory and push the file names to the unclaimed channel
+// startWritingToUnclaimedChan is an internal helper function that manages reading from the store
+// and pushing available messages into the unclaimed channel, respecting the circuit breaker state.
 func (q *Queue) startWritingToUnclaimedChan() func() {
 	stop := make(chan struct{})
 
