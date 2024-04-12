@@ -57,7 +57,7 @@ func main() {
     )
     
     // Publish a message
-    err = q.Publish(&diskoque.Message{
+    err = q.Publish(diskoque.Message{
         Data: "Hello, World!",
     })
     if err != nil {
@@ -68,7 +68,7 @@ func main() {
 	
     // Receive and process messages
     // blocks until the context is done
-    err = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
+    err = q.Receive(ctx, func(ctx context.Context, msg diskoque.Message) error {
         log.Printf("Received message: %s\n", msg.Data)
         cancel()
         return nil

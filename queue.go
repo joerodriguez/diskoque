@@ -31,9 +31,9 @@ type Message struct {
 // Implementations of Store should handle the persistence of messages and provide methods
 // for pushing new messages, iterating over stored messages, retrieving, and deleting messages.
 type Store interface {
-	Push(*Message) error
+	Push(Message) error
 	Iterator() (StoreIterator, error)
-	Get(MessageID) (*Message, error)
+	Get(MessageID) (Message, error)
 	Delete(MessageID) error
 }
 
@@ -122,7 +122,7 @@ func New(store Store, circuitBreaker CircuitBreaker, options ...QueueOption) *Qu
 
 // Publish adds a new message to the queue. It automatically sets the attempt count to 1
 // and stores the message in the unclaimed directory for processing.
-func (q *Queue) Publish(msg *Message) error {
+func (q *Queue) Publish(msg Message) error {
 	if q.circuitBreaker.State() != CircuitClosed {
 		return ErrCircuitBreakerOpen
 	}
@@ -143,10 +143,10 @@ func (q *Queue) Publish(msg *Message) error {
 // Receive starts processing messages from the queue. It listens for new or requeued messages,
 // processes them using the provided handler function, and manages message retry logic based
 // on the handler's success or failure. The process continues until the context is canceled.
-func (q *Queue) Receive(ctx context.Context, handler func(context.Context, *Message) error) error {
+func (q *Queue) Receive(ctx context.Context, handler func(context.Context, Message) error) error {
 
 	// calculate the next attempt delay
-	nextAttemptIn := func(msg *Message) time.Duration {
+	nextAttemptIn := func(msg Message) time.Duration {
 		multiplier := (math.Pow(2, float64(msg.Attempt-1)) - 1) / 2
 		delay := time.Duration(multiplier) * q.minRetryDelay
 		if delay < q.minRetryDelay {

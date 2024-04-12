@@ -30,7 +30,7 @@ func NewLevelDB(db *leveldb.DB) *LevelDBStore {
 
 // Push writes a message to the LevelDB database. It generates a unique ID for each message,
 // serializes the message to JSON, and stores it in the database using the ID as the key.
-func (f *LevelDBStore) Push(message *diskoque.Message) error {
+func (f *LevelDBStore) Push(message diskoque.Message) error {
 	// Generate a unique ID for the message
 	message.ID = generateID()
 
@@ -56,16 +56,16 @@ func (f *LevelDBStore) Iterator() (diskoque.StoreIterator, error) {
 
 // Get retrieves a message by its ID from the LevelDB database, deserializes it from JSON into a diskoque.Message,
 // and returns the message object. This allows for efficient message retrieval using its unique ID.
-func (f *LevelDBStore) Get(id diskoque.MessageID) (*diskoque.Message, error) {
+func (f *LevelDBStore) Get(id diskoque.MessageID) (diskoque.Message, error) {
 	value, err := f.db.Get([]byte(id), nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get value from db: %w", err)
+		return diskoque.Message{}, fmt.Errorf("failed to get value from db: %w", err)
 	}
 
-	msg := &diskoque.Message{}
-	err = json.Unmarshal(value, msg)
+	msg := diskoque.Message{}
+	err = json.Unmarshal(value, &msg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal value into Message: %w", err)
+		return diskoque.Message{}, fmt.Errorf("failed to unmarshal value into Message: %w", err)
 	}
 
 	return msg, nil

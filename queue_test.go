@@ -45,7 +45,7 @@ func TestQueue(t *testing.T) {
 
 			go func() {
 				for i := 0; i < numMessages; i++ {
-					err := q.Publish(&diskoque.Message{
+					err := q.Publish(diskoque.Message{
 						Data: fmt.Sprintf("message-%d", i),
 					})
 					if err != nil {
@@ -75,7 +75,7 @@ func TestQueue(t *testing.T) {
 
 			done := make(chan struct{})
 			go func() {
-				_ = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
+				_ = q.Receive(ctx, func(ctx context.Context, msg diskoque.Message) error {
 					processed(msg.Data)
 					return nil
 				})
@@ -102,7 +102,7 @@ func TestQueue(t *testing.T) {
 				diskoque.WithExponentialBackoff(time.Microsecond, time.Millisecond),
 			)
 
-			err := q.Publish(&diskoque.Message{
+			err := q.Publish(diskoque.Message{
 				Data: "message data",
 			})
 			if err != nil {
@@ -110,7 +110,7 @@ func TestQueue(t *testing.T) {
 			}
 
 			attempts := atomic.Int64{}
-			err = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
+			err = q.Receive(ctx, func(ctx context.Context, msg diskoque.Message) error {
 				attempts.Add(1)
 				if msg.Attempt == 1 {
 					return errors.New("failed")
@@ -142,7 +142,7 @@ func TestQueue(t *testing.T) {
 			cb,
 		)
 
-		err := q.Publish(&diskoque.Message{
+		err := q.Publish(diskoque.Message{
 			Data: "message data",
 		})
 		if err != nil {
@@ -154,7 +154,7 @@ func TestQueue(t *testing.T) {
 		cb.state.Store(&open)
 
 		// publishing should fail
-		err = q.Publish(&diskoque.Message{
+		err = q.Publish(diskoque.Message{
 			Data: "message data",
 		})
 		if !errors.Is(err, diskoque.ErrCircuitBreakerOpen) {
@@ -163,7 +163,7 @@ func TestQueue(t *testing.T) {
 
 		received := make(chan struct{})
 		go func() {
-			_ = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
+			_ = q.Receive(ctx, func(ctx context.Context, msg diskoque.Message) error {
 				received <- struct{}{}
 				return nil
 			})
@@ -307,14 +307,14 @@ func BenchmarkQueue(b *testing.B) {
 			// add b.N messages to the queue
 			go func() {
 				for i := 0; i < b.N; i++ {
-					_ = q.Publish(&diskoque.Message{
+					_ = q.Publish(diskoque.Message{
 						Data: fmt.Sprintf("message-%d", i),
 					})
 				}
 			}()
 
 			go func() {
-				_ = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
+				_ = q.Receive(ctx, func(ctx context.Context, msg diskoque.Message) error {
 					wg.Done()
 					return nil
 				})

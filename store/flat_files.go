@@ -33,7 +33,7 @@ func NewFlatFiles(dataDir string) *FlatFilesStore {
 // Push writes a message to the filesystem as a new file. Each message is stored in its own file,
 // with the message ID generated at the time of saving. This ensures each message is uniquely identified
 // and can be retrieved or deleted individually.
-func (f *FlatFilesStore) Push(message *diskoque.Message) error {
+func (f *FlatFilesStore) Push(message diskoque.Message) error {
 	// Generate a unique filename for the message
 	message.ID = generateID()
 
@@ -63,29 +63,29 @@ func (f *FlatFilesStore) Iterator() (diskoque.StoreIterator, error) {
 
 // Get retrieves a message by its ID from the filesystem. It reads the file corresponding to the message ID,
 // unmarshals the JSON data into a diskoque.Message, and returns it.
-func (f *FlatFilesStore) Get(id diskoque.MessageID) (*diskoque.Message, error) {
+func (f *FlatFilesStore) Get(id diskoque.MessageID) (diskoque.Message, error) {
 	filePath := filepath.Join(f.dataDir, string(id))
 
 	file, err := os.OpenFile(filePath, os.O_RDONLY, 0666)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %w", err)
+		return diskoque.Message{}, fmt.Errorf("failed to open file: %w", err)
 	}
 
 	bytes, err := io.ReadAll(file)
 	if err != nil {
 		_ = file.Close()
-		return nil, fmt.Errorf("failed to read file contents: %w", err)
+		return diskoque.Message{}, fmt.Errorf("failed to read file contents: %w", err)
 	}
 
 	err = file.Close()
 	if err != nil {
-		return nil, fmt.Errorf("failed to close file: %w", err)
+		return diskoque.Message{}, fmt.Errorf("failed to close file: %w", err)
 	}
 
-	msg := &diskoque.Message{}
-	err = json.Unmarshal(bytes, msg)
+	msg := diskoque.Message{}
+	err = json.Unmarshal(bytes, &msg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal file into Message: %w", err)
+		return diskoque.Message{}, fmt.Errorf("failed to unmarshal file into Message: %w", err)
 	}
 
 	return msg, nil
