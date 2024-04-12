@@ -70,8 +70,9 @@ type QueueOption func(*Queue)
 
 // New initializes a new Queue with the specified name and options. It sets up the necessary directories for the queue
 // and starts the internal process for pushing unclaimed messages to be processed. It returns a Queue pointer.
-func New(options ...QueueOption) *Queue {
+func New(store Store, options ...QueueOption) *Queue {
 	q := &Queue{
+		store:               store,
 		maxAttempts:         1,
 		maxInFlightMessages: 1,
 		lockedMessages:      make(map[MessageID]struct{}),

@@ -49,7 +49,7 @@ func main() {
     }
     
     q := diskoque.New(
-        diskoque.WithStore(store.NewLevelDB(db)),
+        store.NewLevelDB(db),
         diskoque.WithMaxAttempts(5),
         diskoque.WithExponentialBackoff(1*time.Second, 30*time.Second),
     )

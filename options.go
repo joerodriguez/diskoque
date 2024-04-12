@@ -4,13 +4,6 @@ import (
 	"time"
 )
 
-// WithStore is a QueueOption to specify which backend to use for storing messages.
-func WithStore(s Store) QueueOption {
-	return func(q *Queue) {
-		q.store = s
-	}
-}
-
 // WithMaxAttempts is a QueueOption to set the maximum number of attempts to process a message before it's considered
 // failed.
 func WithMaxAttempts(maxAttempts uint8) QueueOption {

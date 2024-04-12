@@ -37,7 +37,7 @@ func TestQueue(t *testing.T) {
 			defer cleanup()
 
 			q := diskoque.New(
-				diskoque.WithStore(store),
+				store,
 				diskoque.WithMaxInFlightMessages(numWorkers),
 			)
 
@@ -94,7 +94,7 @@ func TestQueue(t *testing.T) {
 			defer cleanup()
 
 			q := diskoque.New(
-				diskoque.WithStore(store),
+				store,
 				diskoque.WithMaxAttempts(2),
 				diskoque.WithExponentialBackoff(time.Microsecond, time.Millisecond),
 			)
@@ -189,7 +189,7 @@ func BenchmarkQueue(b *testing.B) {
 			}
 
 			q := diskoque.New(
-				diskoque.WithStore(store.NewLevelDB(db)),
+				store.NewLevelDB(db),
 				diskoque.WithMaxInFlightMessages(bm.numWorkers),
 			)
 
