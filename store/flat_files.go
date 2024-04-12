@@ -35,7 +35,7 @@ func NewFlatFiles(dataDir string) *FlatFilesStore {
 // and can be retrieved or deleted individually.
 func (f *FlatFilesStore) Push(message diskoque.Message) error {
 	// Generate a unique filename for the message
-	message.ID = generateID()
+	message.ID = generateID(message)
 
 	// Marshal the message to JSON for storage
 	data, err := json.Marshal(message)
@@ -96,10 +96,10 @@ func (f *FlatFilesStore) Delete(id diskoque.MessageID) error {
 	return os.Remove(filepath.Join(f.dataDir, string(id)))
 }
 
-// generateID creates a unique ID for each message using the current timestamp and a random number.
+// generateID creates a unique ID for each message using the NextAttemptAt timestamp and a random number.
 // This ensures each message file has a unique filename within the data directory.
-func generateID() string {
-	return fmt.Sprintf("%d-%d", time.Now().UnixNano(), rand.Int64())
+func generateID(message diskoque.Message) string {
+	return fmt.Sprintf("%d-%d", message.NextAttemptAt.UnixNano(), rand.Int64())
 }
 
 // FlatFilesStoreIterator implements the diskoque.StoreIterator interface, allowing for batch processing

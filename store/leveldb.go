@@ -31,8 +31,12 @@ func NewLevelDB(db *leveldb.DB) *LevelDBStore {
 // Push writes a message to the LevelDB database. It generates a unique ID for each message,
 // serializes the message to JSON, and stores it in the database using the ID as the key.
 func (f *LevelDBStore) Push(message diskoque.Message) error {
+	if message.NextAttemptAt.IsZero() {
+		message.NextAttemptAt = time.Now()
+	}
+
 	// Generate a unique ID for the message
-	message.ID = generateID()
+	message.ID = generateID(message)
 
 	// Marshal the message to JSON for storage
 	data, err := json.Marshal(message)
