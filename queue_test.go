@@ -17,117 +17,140 @@ import (
 )
 
 func TestQueue(t *testing.T) {
-	t.Run("messages are processed exactly once", func(t *testing.T) {
-		const numMessages = 1000
-		const numWorkers = 100
 
-		ctx, cancel := context.WithCancel(context.Background())
+	cases := []struct {
+		name    string
+		factory func() (diskoque.Store, func())
+	}{
+		{name: "level_db", factory: levelDBStore},
+		{name: "flat_files", factory: flatFileStore},
+	}
+	for _, testCase := range cases {
 
-		// create a temporary directory to store the queue data
-		dir, err := os.MkdirTemp("", "diskoque-benchmark")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer os.RemoveAll(dir)
+		t.Run(testCase.name+"/messages are processed exactly once", func(t *testing.T) {
+			const numMessages = 1000
+			const numWorkers = 100
 
-		db, err := leveldb.OpenFile(filepath.Join(dir, "db"), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+			ctx, cancel := context.WithCancel(context.Background())
 
-		q := diskoque.New(
-			diskoque.WithStore(store.NewLevelDB(db)),
-			diskoque.WithMaxInFlightMessages(numWorkers),
-		)
+			store, cleanup := testCase.factory()
+			defer cleanup()
 
-		go func() {
-			for i := 0; i < numMessages; i++ {
-				err := q.Publish(&diskoque.Message{
-					Data: fmt.Sprintf("message-%d", i),
-				})
-				if err != nil {
-					fmt.Println("err: " + err.Error())
+			q := diskoque.New(
+				diskoque.WithStore(store),
+				diskoque.WithMaxInFlightMessages(numWorkers),
+			)
+
+			go func() {
+				for i := 0; i < numMessages; i++ {
+					err := q.Publish(&diskoque.Message{
+						Data: fmt.Sprintf("message-%d", i),
+					})
+					if err != nil {
+						fmt.Println("err: " + err.Error())
+					}
+				}
+			}()
+
+			success := make(chan struct{})
+			m := sync.Mutex{}
+			eventsProcessed := make(map[string]struct{})
+			processed := func(data string) {
+				m.Lock()
+				defer m.Unlock()
+
+				_, alreadyProcessed := eventsProcessed[data]
+				if alreadyProcessed {
+					t.Fatalf("processed same message twice: %s", data)
+				}
+
+				eventsProcessed[data] = struct{}{}
+
+				if len(eventsProcessed) == numMessages {
+					close(success)
 				}
 			}
-		}()
 
-		success := make(chan struct{})
-		m := sync.Mutex{}
-		eventsProcessed := make(map[string]struct{})
-		processed := func(data string) {
-			m.Lock()
-			defer m.Unlock()
+			done := make(chan struct{})
+			go func() {
+				_ = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
+					processed(msg.Data)
+					return nil
+				})
 
-			_, alreadyProcessed := eventsProcessed[data]
-			if alreadyProcessed {
-				t.Fatalf("processed same message twice: %s", data)
+				close(done)
+			}()
+
+			<-success
+
+			cancel()
+			<-done
+		})
+
+		t.Run(testCase.name+"/messages are retried", func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+
+			store, cleanup := testCase.factory()
+			defer cleanup()
+
+			q := diskoque.New(
+				diskoque.WithStore(store),
+				diskoque.WithMaxAttempts(2),
+				diskoque.WithExponentialBackoff(time.Microsecond, time.Millisecond),
+			)
+
+			err := q.Publish(&diskoque.Message{
+				Data: "message data",
+			})
+			if err != nil {
+				t.Fatalf(err.Error())
 			}
 
-			eventsProcessed[data] = struct{}{}
+			attempts := atomic.Int64{}
+			err = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
+				attempts.Add(1)
+				if msg.Attempt == 1 {
+					return errors.New("failed")
+				}
 
-			if len(eventsProcessed) == numMessages {
-				close(success)
-			}
-		}
-
-		done := make(chan struct{})
-		go func() {
-			_ = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
-				processed(msg.Data)
+				cancel()
 				return nil
 			})
 
-			close(done)
-		}()
-
-		<-success
-
-		cancel()
-		<-done
-	})
-
-	t.Run("messages are retried", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-
-		// create a temporary directory to store the queue data
-		dir, err := os.MkdirTemp("", "diskoque-benchmark")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer os.RemoveAll(dir)
-
-		q := diskoque.New(
-			diskoque.WithStore(store.NewFlatFiles(dir)),
-			diskoque.WithMaxAttempts(2),
-			diskoque.WithExponentialBackoff(time.Microsecond, time.Millisecond),
-		)
-
-		err = q.Publish(&diskoque.Message{
-			Data: "message data",
-		})
-		if err != nil {
-			t.Fatalf(err.Error())
-		}
-
-		attempts := atomic.Int64{}
-		err = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
-			attempts.Add(1)
-			if msg.Attempt == 1 {
-				return errors.New("failed")
+			if attempts.Load() != 2 {
+				t.Fatalf("expected 2 attempts, got %d", attempts.Load())
 			}
 
-			cancel()
-			return nil
+			if err != nil && !errors.Is(err, context.Canceled) {
+				t.Fatalf(err.Error())
+			}
 		})
+	}
+}
 
-		if attempts.Load() != 2 {
-			t.Fatalf("expected 2 attempts, got %d", attempts.Load())
-		}
+func flatFileStore() (diskoque.Store, func()) {
+	// create a temporary directory to store the queue data
+	dir, err := os.MkdirTemp("", "diskoque-benchmark")
+	if err != nil {
+		panic(err)
+	}
 
-		if err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatalf(err.Error())
-		}
-	})
+	return store.NewFlatFiles(dir), func() { os.RemoveAll(dir) }
+}
+
+func levelDBStore() (diskoque.Store, func()) {
+	// create a temporary directory to store the queue data
+	dir, err := os.MkdirTemp("", "diskoque-benchmark")
+	if err != nil {
+		panic(err)
+	}
+
+	db, err := leveldb.OpenFile(filepath.Join(dir, "db"), nil)
+	if err != nil {
+		panic(err)
+	}
+
+	return store.NewLevelDB(db), func() { os.RemoveAll(dir) }
 }
 
 func BenchmarkQueue(b *testing.B) {
