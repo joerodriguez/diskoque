@@ -15,6 +15,16 @@ import (
 // MessageID is a string type representing the unique identifier for a message in the queue.
 type MessageID string
 
+// Message represents a message within the diskoque system.
+// Data holds the message content, and Attempt tracks the number of attempts
+// made to process this message.
+type Message struct {
+	ID            string
+	Data          string
+	Attempt       uint8
+	NextAttemptAt time.Time
+}
+
 // Store defines an interface for storage backends that can be used with the diskoque message queue.
 // Implementations of Store should handle the persistence of messages and provide methods
 // for pushing new messages, iterating over stored messages, retrieving, and deleting messages.
@@ -35,15 +45,30 @@ type StoreIterator interface {
 	Close() error
 }
 
-// Message represents a message within the diskoque system.
-// Data holds the message content, and Attempt tracks the number of attempts
-// made to process this message.
-type Message struct {
-	ID            string
-	Data          string
-	Attempt       uint8
-	NextAttemptAt time.Time
+type CircuitBreakerState int
+
+const (
+	// CircuitClosed means the Queue will operate normally.
+	CircuitClosed CircuitBreakerState = iota
+	// CircuitOpen means operation is degraded, publishing or receiving will not take place.
+	CircuitOpen
+	// RecoveryTrial means a small portion of messages can be received, trialling a return to normal operation.
+	// Publishing is still disabled.
+	RecoveryTrial
+)
+
+type CircuitBreaker interface {
+	State() CircuitBreakerState
+
+	// Success and Failure should be called when a message is successfully processed or fails to be processed.
+	Success()
+	Failure()
+
+	// ShouldTrial returns true if the circuit breaker should trial process a message a return to normal operation.
+	ShouldTrial() bool
 }
+
+var ErrCircuitBreakerOpen = errors.New("the circuit breaker is open, message can not be published or received at this time")
 
 // Queue represents a queue in the diskoque system. It manages the lifecycle
 // of messages from when they're published to when they're received and
@@ -52,6 +77,7 @@ type Message struct {
 type Queue struct {
 	// configurable options
 	store               Store
+	circuitBreaker      CircuitBreaker
 	maxAttempts         uint8
 	minRetryDelay       time.Duration
 	maxRetryDelay       time.Duration
@@ -70,9 +96,10 @@ type QueueOption func(*Queue)
 
 // New initializes a new Queue with the specified name and options. It sets up the necessary directories for the queue
 // and starts the internal process for pushing unclaimed messages to be processed. It returns a Queue pointer.
-func New(store Store, options ...QueueOption) *Queue {
+func New(store Store, circuitBreaker CircuitBreaker, options ...QueueOption) *Queue {
 	q := &Queue{
 		store:               store,
+		circuitBreaker:      circuitBreaker,
 		maxAttempts:         1,
 		maxInFlightMessages: 1,
 		lockedMessages:      make(map[MessageID]struct{}),
@@ -89,6 +116,10 @@ func New(store Store, options ...QueueOption) *Queue {
 // Publish adds a new message to the queue. It automatically sets the attempt count to 1
 // and stores the message in the unclaimed directory for processing.
 func (q *Queue) Publish(msg *Message) error {
+	if q.circuitBreaker.State() != CircuitClosed {
+		return ErrCircuitBreakerOpen
+	}
+
 	msg.Attempt = 1
 	return q.store.Push(msg)
 }
@@ -215,12 +246,21 @@ func (q *Queue) startWritingToUnclaimedChan() func() {
 		return unutilizedCapacity
 	}
 
+	const downtimeSleepDuration = 200 * time.Millisecond
 	go func() {
+		timer := time.NewTimer(0)
+
 		for {
+			// don't process messages if the circuit breaker is open
+			if q.circuitBreaker.State() == CircuitOpen {
+				time.Sleep(1 * time.Second)
+				continue
+			}
+
 			select {
 			case <-stop:
 				return
-			case <-time.After(200 * time.Millisecond):
+			case <-timer.C:
 			}
 
 			iterator, err := q.store.Iterator()
@@ -233,20 +273,39 @@ func (q *Queue) startWritingToUnclaimedChan() func() {
 
 				// we are at capacity
 				if toProcess == 0 {
+					timer.Reset(downtimeSleepDuration)
 					break
 				}
 
+				// there are no more messages to process
 				messageIDS, err := iterator.NextN(toProcess)
 				if err != nil || len(messageIDS) == 0 {
+					timer.Reset(downtimeSleepDuration)
 					break
 				}
 
 				for _, messageID := range messageIDS {
+					// don't process messages if the circuit breaker is open
+					if q.circuitBreaker.State() == CircuitOpen {
+						break
+					}
+
 					select {
 					case <-stop:
 						return
-					case q.unclaimedChan <- messageID:
+					default:
 					}
+
+					// process a sampling of messages if the circuit breaker is in recovery trial
+					if q.circuitBreaker.State() == RecoveryTrial {
+						if q.circuitBreaker.ShouldTrial() {
+							q.unclaimedChan <- messageID
+						}
+						continue
+					}
+
+					// process the message under normal operation
+					q.unclaimedChan <- messageID
 				}
 			}
 

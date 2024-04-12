@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joerodriguez/diskoque"
+	"github.com/joerodriguez/diskoque/circuitbreaker"
 	"github.com/joerodriguez/diskoque/store"
 	"github.com/syndtr/goleveldb/leveldb"
 )
@@ -38,6 +39,7 @@ func TestQueue(t *testing.T) {
 
 			q := diskoque.New(
 				store,
+				circuitbreaker.AlwaysClosed{},
 				diskoque.WithMaxInFlightMessages(numWorkers),
 			)
 
@@ -95,6 +97,7 @@ func TestQueue(t *testing.T) {
 
 			q := diskoque.New(
 				store,
+				circuitbreaker.AlwaysClosed{},
 				diskoque.WithMaxAttempts(2),
 				diskoque.WithExponentialBackoff(time.Microsecond, time.Millisecond),
 			)
@@ -126,6 +129,75 @@ func TestQueue(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("messages can not be published or received if the circuit breaker is open", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+
+		fileStore, cleanup := flatFileStore()
+		defer cleanup()
+
+		cb := newFakeCircuitBreaker()
+		q := diskoque.New(
+			fileStore,
+			cb,
+		)
+
+		err := q.Publish(&diskoque.Message{
+			Data: "message data",
+		})
+		if err != nil {
+			t.Fatalf(err.Error())
+		}
+
+		// set the circuit breaker to open
+		open := diskoque.CircuitOpen
+		cb.state.Store(&open)
+
+		// publishing should fail
+		err = q.Publish(&diskoque.Message{
+			Data: "message data",
+		})
+		if !errors.Is(err, diskoque.ErrCircuitBreakerOpen) {
+			t.Fatalf("expected circuit breaker open error")
+		}
+
+		received := make(chan struct{})
+		go func() {
+			_ = q.Receive(ctx, func(ctx context.Context, msg *diskoque.Message) error {
+				received <- struct{}{}
+				return nil
+			})
+		}()
+
+		// receiving should not work
+		select {
+		case <-received:
+			t.Fatalf("received message when circuit breaker was open")
+		case <-time.After(2 * time.Second):
+		}
+
+		// set the circuit breaker to recovery trial
+		recoveryTrial := diskoque.RecoveryTrial
+		cb.state.Store(&recoveryTrial)
+
+		// receiving should still not work, because the circuit breaker is not sampling the message
+		select {
+		case <-received:
+			t.Fatalf("received message when circuit breaker was open")
+		case <-time.After(2 * time.Second):
+		}
+
+		cb.shouldTrial.Store(true)
+
+		// receiving should work now
+		select {
+		case <-received:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("expected messages to be processed under recovery trial")
+		}
+
+		cancel()
+	})
 }
 
 func flatFileStore() (diskoque.Store, func()) {
@@ -151,6 +223,41 @@ func levelDBStore() (diskoque.Store, func()) {
 	}
 
 	return store.NewLevelDB(db), func() { os.RemoveAll(dir) }
+}
+
+func newFakeCircuitBreaker() *fakeCircuitBreaker {
+	state := diskoque.CircuitClosed
+	atomicPointer := atomic.Pointer[diskoque.CircuitBreakerState]{}
+	atomicPointer.Store(&state)
+
+	shouldTrial := atomic.Bool{}
+	shouldTrial.Store(false)
+
+	return &fakeCircuitBreaker{
+		state:        atomicPointer,
+		shouldTrial:  shouldTrial,
+		successCount: atomic.Int32{},
+	}
+}
+
+type fakeCircuitBreaker struct {
+	state        atomic.Pointer[diskoque.CircuitBreakerState]
+	shouldTrial  atomic.Bool
+	successCount atomic.Int32
+}
+
+func (f *fakeCircuitBreaker) State() diskoque.CircuitBreakerState {
+	return *f.state.Load()
+}
+
+func (f *fakeCircuitBreaker) Success() {
+	f.successCount.Add(1)
+}
+
+func (f *fakeCircuitBreaker) Failure() {}
+
+func (f *fakeCircuitBreaker) ShouldTrial() bool {
+	return f.shouldTrial.Load()
 }
 
 func BenchmarkQueue(b *testing.B) {
@@ -190,6 +297,7 @@ func BenchmarkQueue(b *testing.B) {
 
 			q := diskoque.New(
 				store.NewLevelDB(db),
+				circuitbreaker.AlwaysClosed{},
 				diskoque.WithMaxInFlightMessages(bm.numWorkers),
 			)
 

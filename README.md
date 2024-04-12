@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"github.com/joerodriguez/diskoque"
+	"github.com/joerodriguez/diskoque/circuitbreaker"
 	"github.com/joerodriguez/diskoque/store"
 	"github.com/syndtr/goleveldb/leveldb"
 )
@@ -50,6 +51,7 @@ func main() {
     
     q := diskoque.New(
         store.NewLevelDB(db),
+        circuitbreaker.AlwaysClosed{},
         diskoque.WithMaxAttempts(5),
         diskoque.WithExponentialBackoff(1*time.Second, 30*time.Second),
     )
