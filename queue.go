@@ -90,7 +90,8 @@ type Queue struct {
 	maxInFlightMessages int
 
 	// internal state for message processing
-	unclaimedChan chan MessageID
+	unclaimedChan       chan MessageID
+	newMessagePublished chan struct{}
 
 	// internal state for message locking
 	sync.RWMutex
@@ -127,7 +128,16 @@ func (q *Queue) Publish(msg *Message) error {
 	}
 
 	msg.Attempt = 1
-	return q.store.Push(msg)
+
+	err := q.store.Push(msg)
+	if err == nil {
+		select {
+		case q.newMessagePublished <- struct{}{}:
+		default:
+		}
+	}
+
+	return err
 }
 
 // Receive starts processing messages from the queue. It listens for new or requeued messages,
@@ -267,6 +277,7 @@ func (q *Queue) startWritingToUnclaimedChan() func() {
 			select {
 			case <-stop:
 				return
+			case <-q.newMessagePublished:
 			case <-timer.C:
 			}
 
