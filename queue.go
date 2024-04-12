@@ -56,7 +56,8 @@ type CircuitBreaker interface {
 	Success()
 	// Failure should be called when a message fails to process, indicating potential issues in operation.
 	Failure()
-	// ShouldTrial returns true if the circuit breaker should trial process a message a return to normal operation.
+	// ShouldTrial returns true if the circuit breaker should trial process a message, as a test to return to normal
+	// operation.
 	ShouldTrial() bool
 }
 
@@ -69,7 +70,7 @@ const (
 	// CircuitOpen means operation is degraded, publishing or receiving will not take place.
 	CircuitOpen
 	// RecoveryTrial means a small portion of messages can be received, trialling a return to normal operation.
-	// Publishing is still disabled.
+	// Call ShouldTrial() in this case to determine if a message should be processed. Publishing is still disabled.
 	RecoveryTrial
 )
 
