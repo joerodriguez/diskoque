@@ -108,7 +108,7 @@ BenchmarkQueue/512_workers-10               2713            401034 ns/op
 BenchmarkQueue/1024_workers-10              4768            235397 ns/op
 BenchmarkQueue/2048_workers-10              8752            135257 ns/op
 BenchmarkQueue/4096_workers-10             18918             64447 ns/op
-BenchmarkQueue/8192_workers-10             51955             22321 ns/op
+BenchmarkQueue/8192_workers-10             51955             22322 ns/op
 ```
 
 ### Contributing
