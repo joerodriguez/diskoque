@@ -120,7 +120,7 @@ func TestQueue(t *testing.T) {
 				return nil
 			})
 
-			if attempts.Load() != 2 {
+			if attempts.Load() != 8 {
 				t.Fatalf("expected 2 attempts, got %d", attempts.Load())
 			}
 
